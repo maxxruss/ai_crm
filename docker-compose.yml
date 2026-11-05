@@ -1,0 +1,229 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: smart-rag-app:local
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      APP_KEY: ${APP_KEY:-}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-knowledge_base}
+      DB_USERNAME: ${DB_USERNAME:-knowledge}
+      DB_PASSWORD: ${DB_PASSWORD:-change-me}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me}
+      REDIS_PORT: 6379
+      QUEUE_CONNECTION: redis
+      BROADCAST_CONNECTION: reverb
+      REVERB_APP_ID: ${REVERB_APP_ID:-smart-rag-local}
+      REVERB_APP_KEY: ${REVERB_APP_KEY:-local-app-key}
+      REVERB_APP_SECRET: ${REVERB_APP_SECRET:-change-this-secret}
+      REVERB_HOST: reverb
+      REVERB_PORT: 8080
+      REVERB_SCHEME: http
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-}
+      AI_EMBEDDING_DIMENSIONS: ${AI_EMBEDDING_DIMENSIONS:-1536}
+      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY:-}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GIGACHAT_TOKEN_URL: ${GIGACHAT_TOKEN_URL:-https://ngw.devices.sberbank.ru:9443/api/v2/oauth}
+      GIGACHAT_BASE_URL: ${GIGACHAT_BASE_URL:-https://api.giga.chat/v1}
+      GIGACHAT_CHAT_MODEL: ${GIGACHAT_CHAT_MODEL:-GigaChat-2-Lite}
+      GIGACHAT_CA_BUNDLE: ${GIGACHAT_CA_BUNDLE:-/etc/gigachat/certs/russian_trusted_root_ca_pem.crt}
+      GIGACHAT_TIMEOUT: ${GIGACHAT_TIMEOUT:-45}
+      LOCAL_EMBEDDING_URL: http://embeddings:80
+      LOCAL_EMBEDDING_MODEL: ${LOCAL_EMBEDDING_MODEL:-intfloat/multilingual-e5-base}
+      LOCAL_EMBEDDING_DIMENSIONS: ${LOCAL_EMBEDDING_DIMENSIONS:-768}
+      LOCAL_EMBEDDING_TIMEOUT: ${LOCAL_EMBEDDING_TIMEOUT:-60}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      embeddings:
+        condition: service_started
+    volumes:
+      - ./:/var/www/html
+      - vendor:/var/www/html/vendor
+      - laravel_storage:/var/www/html/storage
+      - laravel_cache:/var/www/html/bootstrap/cache
+      - ./docker/certs:/etc/gigachat/certs:ro
+    networks:
+      - backend
+
+  webserver:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    volumes:
+      - ./:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+      - node
+      - reverb
+    networks:
+      - backend
+
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-knowledge_base}
+      POSTGRES_USER: ${DB_USERNAME:-knowledge}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-change-me}"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD:-change-me}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me}
+    networks:
+      - backend
+
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    command: ["--model-id", "${LOCAL_EMBEDDING_MODEL:-intfloat/multilingual-e5-base}"]
+    restart: unless-stopped
+    volumes:
+      - embeddings_model_cache:/data
+    networks:
+      - backend
+
+  laravel-worker:
+    image: smart-rag-app:local
+    restart: unless-stopped
+    command: ["php", "artisan", "horizon"]
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      APP_KEY: ${APP_KEY:-}
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-knowledge_base}
+      DB_USERNAME: ${DB_USERNAME:-knowledge}
+      DB_PASSWORD: ${DB_PASSWORD:-change-me}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me}
+      REDIS_PORT: 6379
+      QUEUE_CONNECTION: redis
+      BROADCAST_CONNECTION: reverb
+      REVERB_APP_ID: ${REVERB_APP_ID:-smart-rag-local}
+      REVERB_APP_KEY: ${REVERB_APP_KEY:-local-app-key}
+      REVERB_APP_SECRET: ${REVERB_APP_SECRET:-change-this-secret}
+      REVERB_HOST: reverb
+      REVERB_PORT: 8080
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-}
+      AI_EMBEDDING_DIMENSIONS: ${AI_EMBEDDING_DIMENSIONS:-1536}
+      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY:-}
+      GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GIGACHAT_TOKEN_URL: ${GIGACHAT_TOKEN_URL:-https://ngw.devices.sberbank.ru:9443/api/v2/oauth}
+      GIGACHAT_BASE_URL: ${GIGACHAT_BASE_URL:-https://api.giga.chat/v1}
+      GIGACHAT_CHAT_MODEL: ${GIGACHAT_CHAT_MODEL:-GigaChat-2-Lite}
+      GIGACHAT_CA_BUNDLE: ${GIGACHAT_CA_BUNDLE:-/etc/gigachat/certs/russian_trusted_root_ca_pem.crt}
+      GIGACHAT_TIMEOUT: ${GIGACHAT_TIMEOUT:-45}
+      LOCAL_EMBEDDING_URL: http://embeddings:80
+      LOCAL_EMBEDDING_MODEL: ${LOCAL_EMBEDDING_MODEL:-intfloat/multilingual-e5-base}
+      LOCAL_EMBEDDING_DIMENSIONS: ${LOCAL_EMBEDDING_DIMENSIONS:-768}
+      LOCAL_EMBEDDING_TIMEOUT: ${LOCAL_EMBEDDING_TIMEOUT:-60}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      embeddings:
+        condition: service_started
+    volumes:
+      - ./:/var/www/html
+      - vendor:/var/www/html/vendor
+      - laravel_storage:/var/www/html/storage
+      - laravel_cache:/var/www/html/bootstrap/cache
+      - ./docker/certs:/etc/gigachat/certs:ro
+    networks:
+      - backend
+
+  reverb:
+    image: smart-rag-app:local
+    restart: unless-stopped
+    command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_KEY: ${APP_KEY:-}
+      REVERB_APP_ID: ${REVERB_APP_ID:-smart-rag-local}
+      REVERB_APP_KEY: ${REVERB_APP_KEY:-local-app-key}
+      REVERB_APP_SECRET: ${REVERB_APP_SECRET:-change-this-secret}
+      REVERB_SERVER_HOST: 0.0.0.0
+      REVERB_SERVER_PORT: 8080
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me}
+      REDIS_PORT: 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/var/www/html
+      - vendor:/var/www/html/vendor
+      - laravel_storage:/var/www/html/storage
+      - laravel_cache:/var/www/html/bootstrap/cache
+    networks:
+      - backend
+
+  node:
+    image: node:22-alpine
+    working_dir: /var/www/html
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    environment:
+      APP_URL: ${APP_URL:-http://localhost:8080}
+    volumes:
+      - ./:/var/www/html
+      - node_modules:/var/www/html/node_modules
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  embeddings_model_cache:
+  node_modules:
+  vendor:
+  laravel_storage:
+  laravel_cache:

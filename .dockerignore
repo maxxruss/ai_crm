@@ -1,0 +1,10 @@
+.git
+.env
+.idea
+.vscode
+node_modules
+vendor
+public/build
+docker/certs
+storage/logs/*
+coverage
