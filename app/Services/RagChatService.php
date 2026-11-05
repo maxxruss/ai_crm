@@ -26,7 +26,7 @@ final class RagChatService
         if (mb_strlen($question) < 100) {
             foreach (array_reverse($history) as $message) {
                 if (($message['role'] ?? null) === 'user' && is_string($message['content'] ?? null)) {
-                    $query = trim($message['content'])."\n".$question;
+                    $query = mb_substr(trim($message['content']), -250)."\n".$question;
                     break;
                 }
             }

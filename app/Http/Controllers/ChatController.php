@@ -14,7 +14,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 use Throwable;
 
 final class ChatController extends Controller
@@ -83,7 +82,7 @@ final class ChatController extends Controller
             ? $conversation->messages()
                 ->whereIn('role', ['user', 'assistant'])
                 ->where('status', 'completed')
-                ->latest('id')
+                ->reorder('id', 'desc')
                 ->limit(6)
                 ->get(['role', 'content'])
                 ->reverse()
